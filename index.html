@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MatheCoach - Leo's Mathe-Training</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Constants
+        const EPS = 1e-9;
+        const SESSION_DURATION = 15 * 60;
+        const SUPABASE_URL = "https://woufcdjretcwcgqrbdgt.supabase.co";
+        const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_rLAZyU831efiFNF9jgPalA_J4mTSHld";
+        const CLOUD_PROFILE_STORAGE_KEY = "matheCoachCloudProfile";
+
+        const PLAN = Object.freeze({
+          week1: Object.freeze([
+            Object.freeze({title:"Einmaleins Refresh", blocks:Object.freeze(["times","times","times","round","round","est"])}),
+            Object.freeze({title:"Zahlensinn & Runden", blocks:Object.freeze(["round","round","est","est","times","numline"])}),
+            Object.freeze({title:"Brüche ↔ Dezimal", blocks:Object.freeze(["frac","frac","frac","est","numline","times"])}),
+            Object.freeze({title:"Zahlenstrahl", blocks:Object.freeze(["numline","numline","frac","round","times","est"])}),
+            Object.freeze({title:"Mix & Spieltag", blocks:Object.freeze(["times","frac","numline","round","est","pyramid"])}),
+          ]),
+          week2: Object.freeze([
+            Object.freeze({title:"Automatisierung 1", blocks:Object.freeze(["times","times","times","times","round","frac"])}),
+            Object.freeze({title:"Brüche zeichnen/denken", blocks:Object.freeze(["frac","frac","numline","numline","times","est"])}),
+            Object.freeze({title:"Runden in Kontext", blocks:Object.freeze(["round","est","round","est","times","frac"])}),
+            Object.freeze({title:"Zahlenmauern Logik", blocks:Object.freeze(["pyramid","pyramid","round","times","frac","numline"])}),
+            Object.freeze({title:"Mix & Test", blocks:Object.freeze(["times","frac","numline","est","round","pyramid"])}),
+          ]),
+          week3: Object.freeze([
+            Object.freeze({title:"Tempo & Genauigkeit", blocks:Object.freeze(["times","times","round","times","frac","est"])}),
+            Object.freeze({title:"Bruchgefühl festigen", blocks:Object.freeze(["frac","numline","frac","numline","times","round"])}),
+            Object.freeze({title:"Schätzen im Alltag", blocks:Object.freeze(["est","round","est","times","frac","numline"])}),
+            Object.freeze({title:"Transferaufgaben", blocks:Object.freeze(["pyramid","frac","times","numline","round","est"])}),
+            Object.freeze({title:"Abschluss: Mini-Check", blocks:Object.freeze(["times","frac","numline","round","est","pyramid"])}),
+          ])
+        });
+
+        const BLOCK_LABEL = Object.freeze({
+          times:"Einmaleins-Blitz",
+          round:"Runden-Ranger",
+          est:"Schätz-Safari",
+          frac:"Bruch-Match",
+          numline:"Zahlenstrahl-Ziel",
+          pyramid:"Zahlenmauer",
+          quiz:"Abschluss-Quiz",
+          mix:"Mix"
+        });
+
+        const SKILL_INFO = Object.freeze({
+          times: Object.freeze({ name: "Einmaleins", icon: "✖️", maxLevel: 5 }),
+          round: Object.freeze({ name: "Runden", icon: "🎯", maxLevel: 5 }),
+          est: Object.freeze({ name: "Schätzen", icon: "🔍", maxLevel: 5 }),
+          frac: Object.freeze({ name: "Brüche", icon: "🍕", maxLevel: 5 }),
+          numline: Object.freeze({ name: "Zahlenstrahl", icon: "📏", maxLevel: 5 }),
+          pyramid: Object.freeze({ name: "Zahlenmauern", icon: "🧱", maxLevel: 5 })
+        });
+
+        const MATH_JOKES = [
+          "Warum ist die 6 traurig? Weil 7-8-9! 😄",
+          "Was macht ein Mathematiker im Garten? Wurzeln ziehen! 🌱",
+          "Warum mögen Mathematiker den Herbst? Wegen der vielen Blätter! 🍂",
+          "Was ist das Lieblingsessen von Mathematikern? Wurzel-Gemüse! 🥕",
+          "Warum ging die 0 zur Party? Weil sie sich nicht alleine zählen wollte! 🎉",
+          "Was sagt der große Stift zum kleinen Stift? Wachsmalstift! ✏️",
+          "Warum sind Mathebücher immer traurig? Weil sie so viele Probleme haben! 📚",
+          "Was ist ein Kreis? Ein Viereck, das alle Ecken verloren hat! ⭕",
+          "Warum ist die 10 besser als die 9? Weil sie eine Null mehr ist! 😎",
+        ];
+
+        // Utils
+        const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        const shuffle = (arr) => arr.map(v=>[Math.random(),v]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+
+        function useLocalState(key, init){
+          const safeGet = () => {
+            try {
+              if (typeof window === "undefined") return init;
+              const v = window.localStorage.getItem(key);
+              return v ? JSON.parse(v) : init;
+            } catch { return init; }
+          };
+          const [val, setVal] = useState(() => safeGet());
+          
+          useEffect(() => {
+            try {
+              if (typeof window !== "undefined") {
+                window.localStorage.setItem(key, JSON.stringify(val));
+              }
+            } catch (e) {
+              console.warn('localStorage save failed', e);
+            }
+          }, [key, val]);
+          
+          return [val, setVal];
+        }
+
+        function normalizeNumber(s) {
+          if (!s || typeof s !== "string") return null;
+          let v = s.trim();
+          if (!v) return null;
+          
+          const fracMatch = v.match(/^([+\-]?\d+)\s*\/\s*(\d+)$/);
+          if (fracMatch) {
+            const num = parseFloat(fracMatch[1]);
+            const denom = parseFloat(fracMatch[2]);
+            if (denom === 0) return null;
+            return num / denom;
+          }
+          
+          v = v.replace(/[–−]/g, "-");
+          v = v.replace(/^\s*([+\-])\s+/, "$1");
+          
+          v = v
+            .replace(/['\u2019 \u00A0\u2009\u200A\u202F\s]/g, "")
+            .replace(/\./g, (match, offset, string) => {
+              const afterDot = string.substring(offset + 1);
+              return /^\d{3}($|\D)/.test(afterDot) ? "" : ".";
+            })
+            .replace(/,/g, ".");
+          
+          const n = parseFloat(v);
+          return isNaN(n) ? null : n;
+        }
+
+        function equalAns(user, correct) {
+          const su = String(user || "").trim();
+          const sc = String(correct || "").trim();
+          
+          if (su === sc) return true;
+          
+          const nu = normalizeNumber(su);
+          const nc = normalizeNumber(sc);
+          
+          if (nu !== null && nc !== null) {
+            const tol = Math.max(EPS, Math.abs(nc) * 1e-9);
+            return Math.abs(nu - nc) < tol;
+          }
+          
+          return false;
+        }
+
+        function getRandomJoke(){
+          return MATH_JOKES[rand(0, MATH_JOKES.length - 1)];
+        }
+
+        function needsExtraTraining(stats, module){
+          const s = stats?.[module];
+          if(!s || s.attempts < 5) return false;
+          const threshold = s.attempts >= 10 ? 70 : 60;
+          return (s.correct / s.attempts) * 100 < threshold;
+        }
+
+        function hasMastery(stats, module){
+          const s = stats?.[module];
+          return !!s && s.attempts >= 20 && (s.correct / s.attempts) * 100 >= 80;
+        }
+
+        function createEmptySkillStats(){
+          return {
+            times: {attempts:0, correct:0, totalTime:0},
+            round: {attempts:0, correct:0, totalTime:0},
+            est: {attempts:0, correct:0, totalTime:0},
+            frac: {attempts:0, correct:0, totalTime:0},
+            numline: {attempts:0, correct:0, totalTime:0},
+            pyramid: {attempts:0, correct:0, totalTime:0},
+            sessions: []
+          };
+        }
+
+        function formatCloudError(error){
+          const message = String(error?.message || error || "").trim();
+          if (!message) return "Die Cloud-Verbindung hat nicht geklappt.";
+          if (message.includes("invalid_login")) return "Name oder PIN stimmen nicht.";
+          if (message.includes("name_already_exists")) return "Diesen Namen gibt es schon. Bitte anmelden oder einen anderen Namen nehmen.";
+          if (message.includes("name_too_short")) return "Der Name ist zu kurz.";
+          if (message.includes("pin_too_short")) return "Die PIN braucht mindestens 4 Zeichen.";
+          if (message.includes("Failed to fetch")) return "Die Verbindung zu Supabase hat nicht geklappt.";
+          return message;
+        }
+
+        function toLocalSessionDay(value){
+          if (!value) return null;
+          const parsed = new Date(value);
+          return Number.isNaN(parsed.getTime()) ? null : parsed.toDateString();
+        }
+
+        function normalizeRecentSessions(sessions){
+          if (!Array.isArray(sessions)) return [];
+          return sessions
+            .map(session => ({
+              date: session?.date || new Date().toISOString(),
+              score: Number(session?.score || 0),
+              total: Number(session?.total || 0),
+              week: Number(session?.week || 1),
+              day: Number(session?.day || 1)
+            }))
+            .sort((a, b) => new Date(a.date) - new Date(b.date))
+            .slice(-30);
+        }
+
+        function applyCloudPayloadToState(payload, setters){
+          const skills = createEmptySkillStats();
+          const rawSkills = payload?.skills || {};
+
+          Object.keys(SKILL_INFO).forEach((key) => {
+            const entry = rawSkills[key] || {};
+            skills[key] = {
+              attempts: Number(entry?.attempts || 0),
+              correct: Number(entry?.correct || 0),
+              totalTime: Number(entry?.totalTime || 0) / 1000
+            };
+          });
+
+          skills.sessions = normalizeRecentSessions(payload?.recent_sessions);
+
+          setters.setStreak(Number(payload?.stats?.streak || 0));
+          setters.setXp(Number(payload?.stats?.total_xp || 0));
+          setters.setWeek(Number(payload?.stats?.current_week || 1));
+          setters.setDay(Number(payload?.stats?.current_day || 1));
+          setters.setLastSession(toLocalSessionDay(payload?.stats?.last_session_on));
+          setters.setSkillStats(skills);
+          return skills;
+        }
+
+        function serializeResultsForCloud(results){
+          return (results || []).map((result) => ({
+            type: result?.type,
+            correct: !!result?.correct,
+            close: !!result?.close,
+            time: Math.max(0, Math.round(Number(result?.time || 0) * 1000))
+          }));
+        }
+
+        async function supabaseRpc(functionName, args){
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "apikey": SUPABASE_PUBLISHABLE_KEY,
+              "Authorization": `Bearer ${SUPABASE_PUBLISHABLE_KEY}`
+            },
+            body: JSON.stringify(args || {})
+          });
+
+          let data = null;
+          try {
+            data = await response.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!response.ok) {
+            const message = data?.message || data?.error || data?.hint || `Supabase RPC Fehler (${response.status})`;
+            throw new Error(message);
+          }
+
+          return data;
+        }
+
+        // Task Generators
+        function genTimes(){
+          const a = rand(2,9), b = rand(2,9); 
+          return {q:`${a} × ${b} = ?`, a:(a*b).toString(), hint:"Denk an Päckchen: a Gruppen mit b Elementen.", type:"times"};
+        }
+
+        function genRound(){
+          const n = (Math.random()<0.5? rand(10,999): (rand(100,999)/10));
+          const modes = ["Zehntel","Einer","Zehner","Hunderter"]; 
+          const m = modes[rand(0,modes.length-1)];
+          const goal = (num)=>{
+            const x = Number(num);
+            switch(m){
+              case "Zehntel": return (Math.round(x*10)/10).toString();
+              case "Einer": return Math.round(x).toString();
+              case "Zehner": return (Math.round(x/10)*10).toString();
+              case "Hunderter": return (Math.round(x/100)*100).toString();
+              default: return "";
+            }
+          };
+          const answer = goal(n);
+          return {
+            q:`${n} auf ${m} runden`, 
+            a: answer, 
+            hint:"5er-Regel: 5 oder mehr → aufrunden.",
+            explain:`Die Antwort ist ${answer}. Schau auf die Stelle rechts vom Rundungspunkt.`,
+            type:"round"
+          };
+        }
+
+        function genEst(){
+          const a = rand(200,4900); const b = rand(200,4900);
+          const op = Math.random()<0.5? "+":"-";
+          const rounded = (x)=> Math.round(x/100)*100;
+          const qa = `${a} ${op} ${b} ≈ ? (auf Hunderter gerundet)`;
+          const val = op==="+"? rounded(a)+rounded(b): rounded(a)-rounded(b);
+          return {
+            q:qa,
+            a:val.toString(),
+            hint:"Beide Zahlen zuerst auf Hunderter runden.",
+            explain:`${a} → ${rounded(a)}, ${b} → ${rounded(b)}. Also: ${rounded(a)} ${op} ${rounded(b)} = ${val}`,
+            type:"est"
+          };
+        }
+
+        function genFrac(){
+          const options = [
+            {q:"Welcher Dezimalbruch ist 3/4?", a:"0.75", choices:["0.75","0.25","0.3","0.8"], explain:"3/4 = 0.75. Stelle dir 4 gleiche Teile vor, nimm 3 davon."},
+            {q:"Welcher Bruch ist 0.125?", a:"1/8", choices:["1/8","1/4","1/10","3/20"], explain:"0.125 = 1/8. Das ist ein Achtel."},
+            {q:"Welcher Bruch ist 0.2?", a:"1/5", choices:["1/5","2/5","1/4","2/10"], explain:"0.2 = 1/5. Ein Fünftel."},
+            {q:"Welcher Dezimalbruch ist 1/4?", a:"0.25", choices:["0.2","0.4","0.25","0.125"], explain:"1/4 = 0.25. Ein Viertel ist 0.25."},
+            {q:"Welcher Dezimalbruch ist 1/2?", a:"0.5", choices:["0.5","0.25","0.2","0.125"], explain:"1/2 = 0.5. Die Hälfte."},
+            {q:"Welcher Bruch ist 0.5?", a:"1/2", choices:["1/2","1/4","1/5","1/8"], explain:"0.5 = 1/2. Die Hälfte."},
+          ];
+          const it = options[rand(0,options.length-1)];
+          return {...it, hint:"Denk in Achteln, Vierteln, Fünfteln.", type:"frac"};
+        }
+
+        function genNumline(){
+          const denom = [2,4,5,8][rand(0,3)];
+          const k = rand(1,denom-1);
+          const val = k/denom;
+          const correct = String(Number(val.toFixed(2)));
+
+          const pool = new Set([correct, "0.1","0.2","0.8"]);
+          const step = 1/denom;
+          
+          for (let d of [-2,-1,1,2,3,-3,4,-4]) {
+            const cand = Math.max(0, Math.min(1, val + d*step));
+            pool.add(String(Number(cand.toFixed(2))));
+            if (pool.size >= 8) break;
+          }
+          
+          const unique = Array.from(pool);
+          const distractors = unique.filter(x => x !== correct);
+          const picked = shuffle(distractors).slice(0, Math.max(0, 3));
+          const choices = shuffle([correct, ...picked]);
+          
+          while (choices.length < 4) {
+            const extra = String(Number(Math.max(0, Math.min(1, Math.random())).toFixed(2)));
+            if (!choices.includes(extra)) choices.push(extra);
+          }
+          
+          return {
+            q:`Wo liegt ${k}/${denom} auf dem Zahlenstrahl (0 bis 1)?`,
+            a: correct,
+            choices: choices.slice(0,4),
+            hint:`Teile die Strecke 0-1 in ${denom} gleiche Teile.`,
+            explain:`${k}/${denom} = ${correct}. Stelle dir ${denom} gleiche Abschnitte zwischen 0 und 1 vor.`,
+            type:"numline"
+          };
+        }
+
+        function genPyramid(){
+          const base = [rand(1,9), rand(1,9), rand(1,9), rand(1,9)];
+          const row2 = [base[0]+base[1], base[1]+base[2], base[2]+base[3]];
+          const row3 = [row2[0]+row2[1], row2[1]+row2[2]];
+          const top = row3[0]+row3[1];
+          return {
+            q:`Zahlenmauer: Basis [${base.join(', ')}]. Was steht ganz oben?`,
+            a:top.toString(),
+            hint:"Addiere immer zwei Nachbarn nach oben.",
+            explain:`Von unten: ${base.join(' ')} → ${row2.join(' ')} → ${row3.join(' ')} → ${top}`,
+            type:"pyramid"
+          };
+        }
+
+        function genQuiz(){
+          const gens = [genTimes, genRound, genFrac, genNumline, genEst, genPyramid];
+          return gens[rand(0,gens.length-1)]();
+        }
+
+        const GEN_MAP = {
+          times: genTimes,
+          round: genRound,
+          est: genEst,
+          frac: genFrac,
+          numline: genNumline,
+          pyramid: genPyramid,
+          quiz: genQuiz,
+          mix: genQuiz
+        };
+
+        function makeTask(type) {
+          return GEN_MAP[type] ? GEN_MAP[type]() : genQuiz();
+        }
+
+        // Components
+        function TaskCard({task,onAnswer,showFeedback,isCorrect,autoAdvance,feedbackType}){
+          const [input,setInput] = useState("");
+          const startRef = useRef(Date.now());
+          const [locked, setLocked] = useState(false);
+          const [showUndo, setShowUndo] = useState(false);
+          const [lastAnswer, setLastAnswer] = useState(null);
+          const undoTimerRef = useRef(null);
+          
+          useEffect(() => {
+            setLocked(false);
+            setInput("");
+            setShowUndo(false);
+            startRef.current = Date.now();
+            return () => {
+              if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+            };
+          }, [task]);
+          
+          const isMC = task.choices && task.choices.length>0;
+          const isNumline = task.type === 'numline';
+          
+          const handleAnswer = (ans, skipUndo = false) => {
+            if (locked && !showUndo) return;
+            
+            if (ans === "__skip__") {
+              setLocked(true);
+              const timeSpent = (Date.now() - startRef.current) / 1000;
+              onAnswer(ans, timeSpent);
+              return;
+            }
+            
+            if (!skipUndo && !isMC) {
+              setShowUndo(true);
+              setLastAnswer(ans);
+              setLocked(true);
+              
+              undoTimerRef.current = setTimeout(() => {
+                const timeSpent = (Date.now() - startRef.current) / 1000;
+                onAnswer(ans, timeSpent);
+                setShowUndo(false);
+              }, 1500);
+              return;
+            }
+            
+            setLocked(true);
+            const timeSpent = (Date.now() - startRef.current) / 1000;
+            onAnswer(ans, timeSpent);
+          };
+          
+          const handleUndo = () => {
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+            setShowUndo(false);
+            setLocked(false);
+            setLastAnswer(null);
+          };
+          
+          const canSubmit = input.trim().length > 0;
+          
+          if (showFeedback) {
+            const isClose = feedbackType === 'close';
+            const bgColor = isCorrect ? 'bg-green-50 border-4 border-green-400' : 
+                            isClose ? 'bg-yellow-50 border-4 border-yellow-400' : 
+                            'bg-red-50 border-4 border-red-400';
+            const emoji = isCorrect ? '🎉' : isClose ? '🎯' : '💡';
+            const title = isCorrect ? 'Super, Leo!' : isClose ? 'Fast geschafft!' : 'Jetzt weißt du\'s!';
+            
+            const needsButton = !isCorrect || !autoAdvance;
+            
+            return (
+              <div aria-live="polite" aria-atomic="true">
+                <div 
+                  role="status"
+                  className={`rounded-2xl shadow-lg p-4 sm:p-6 ${bgColor}`}
+                >
+                  <div className="text-center">
+                    <div className="text-5xl sm:text-6xl mb-2 sm:mb-3">{emoji}</div>
+                    <div className="text-xl sm:text-2xl font-bold mb-2">
+                      {title}
+                    </div>
+                    <div className="text-base sm:text-lg mb-2">
+                      {isCorrect ? 'Richtig gelöst!' : isClose ? `Nur knapp daneben!` : `Richtige Antwort: ${task.a}`}
+                    </div>
+                    {task.explain && (
+                      <div className="text-xs sm:text-sm text-gray-700 bg-white rounded-lg p-3 border-2 border-gray-200 mb-3">
+                        {task.explain}
+                      </div>
+                    )}
+                    {needsButton && (
+                      <button 
+                        onClick={()=>onAnswer("__next__", 0)} 
+                        className="mt-2 bg-black text-white rounded-xl px-4 sm:px-6 py-2 sm:py-3 font-semibold hover:bg-gray-800 transition text-sm sm:text-base w-full sm:w-auto"
+                      >
+                        Weiter →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          
+          return (
+            <div className="rounded-2xl shadow p-3 sm:p-4 bg-white">
+              <div className="text-sm text-gray-500 mb-1">Aufgabe</div>
+              <div className="text-lg sm:text-xl font-semibold mb-3">{task.q}</div>
+              
+              {isNumline && task.choices ? (
+                <div className="mb-4">
+                  <div className="relative bg-gradient-to-r from-blue-100 to-purple-100 rounded-xl p-4 mb-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-bold text-gray-700">0</span>
+                      <span className="text-sm font-bold text-gray-700">1</span>
+                    </div>
+                    <div className="relative h-3 bg-white rounded-full shadow-inner">
+                      {task.choices.map((choice, i) => {
+                        const pos = parseFloat(choice) * 100;
+                        if (isNaN(pos)) return null;
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => handleAnswer(choice)}
+                            disabled={locked}
+                            className="absolute top-1/2 -translate-y-1/2 w-8 h-8 -ml-4 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 rounded-full shadow-lg border-2 border-white transition-all hover:scale-110 disabled:cursor-not-allowed disabled:hover:scale-100"
+                            style={{ left: `${Math.min(100, Math.max(0, pos))}%` }}
+                            aria-label={`Position ${choice}`}
+                          >
+                            <span className="text-xs font-bold text-white">{i+1}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {task.choices.map((c,i)=> (
+                      <button 
+                        key={i} 
+                        onClick={()=>handleAnswer(c)} 
+                        disabled={locked}
+                        style={{ minHeight: '44px' }}
+                        className="border-2 rounded-xl px-4 py-2 hover:bg-gray-50 hover:border-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base font-medium"
+                      >
+                        {i+1}. {c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : isMC ? (
+                <div className="grid grid-cols-1 gap-2 mb-3">
+                  {task.choices.map((c,i)=> (
+                    <button 
+                      key={i} 
+                      onClick={()=>handleAnswer(c)} 
+                      disabled={locked}
+                      style={{ minHeight: '44px' }}
+                      className="border-2 rounded-xl px-4 py-2 hover:bg-gray-50 hover:border-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base font-medium text-left"
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div>
+                  {showUndo ? (
+                    <div className="bg-orange-50 border-2 border-orange-400 rounded-xl p-4 mb-3 animate-scale-in">
+                      <div className="text-center">
+                        <div className="font-bold text-orange-800 mb-2">Deine Antwort: {lastAnswer}</div>
+                        <button
+                          onClick={handleUndo}
+                          className="bg-orange-500 text-white rounded-xl px-6 py-2 font-semibold hover:bg-orange-600 transition"
+                        >
+                          ↶ Rückgängig
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <input 
+                        value={input} 
+                        onChange={e=>setInput(e.target.value)} 
+                        onKeyDown={e=> e.key==="Enter" && canSubmit && !locked && handleAnswer(input)}
+                        placeholder="Antwort (z.B. 0,5 oder 1/2)" 
+                        disabled={locked}
+                        type="tel"
+                        pattern="[0-9\-\.,/]*"
+                        autoComplete="off"
+                        className="border-2 rounded-xl px-4 py-3 w-full mb-3 disabled:opacity-50 text-sm sm:text-base focus:border-blue-400 focus:outline-none" 
+                        style={{ minHeight: '44px' }}
+                      />
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={()=>handleAnswer(input)} 
+                          disabled={!canSubmit || locked}
+                          style={{ minHeight: '44px' }}
+                          className="bg-black text-white rounded-xl px-4 py-2 hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed flex-1 text-sm sm:text-base font-semibold"
+                        >
+                          Prüfen ✓
+                        </button>
+                        <button
+                          onClick={()=>handleAnswer("__skip__", true)}
+                          disabled={locked}
+                          style={{ minHeight: '44px' }}
+                          className="border-2 border-blue-400 text-blue-600 rounded-xl px-4 py-2 hover:bg-blue-50 transition disabled:opacity-50 disabled:cursor-not-allowed flex-1 text-sm sm:text-base font-semibold"
+                        >
+                          💡 Weiß nicht
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="mt-3 text-gray-500 text-xs sm:text-sm bg-blue-50 rounded-lg p-2 border border-blue-200">
+                💡 <strong>Tipp:</strong> {task.hint}
+              </div>
+            </div>
+          );
+        }
+
+        function Session({blocks,onDone,isWarmup}){
+          const [blockIdx, setBlockIdx] = useState(0);
+          const [score, setScore] = useState(0);
+          const [totalAttempts, setTotalAttempts] = useState(0);
+          const [task, setTask] = useState(()=> makeTask(blocks[0]));
+          const [results, setResults] = useState([]);
+          const [showFeedback, setShowFeedback] = useState(false);
+          const [lastCorrect, setLastCorrect] = useState(false);
+          const [lastFeedbackType, setLastFeedbackType] = useState('correct');
+          const [timeLeft, setTimeLeft] = useState(SESSION_DURATION);
+          const [sessionActive, setSessionActive] = useState(true);
+          const [autoAdvance, setAutoAdvance] = useLocalState("autoAdvance", true);
+          const [timerVisible, setTimerVisible] = useLocalState("timerVisible", true);
+          const timerRef = useRef(null);
+          const feedbackTimerRef = useRef(null);
+
+          const currentBlockType = blocks[blockIdx % blocks.length];
+          const label = BLOCK_LABEL[currentBlockType] || "Aufgabe";
+
+          useEffect(() => {
+            return () => {
+              if (timerRef.current) clearInterval(timerRef.current);
+            };
+          }, []);
+
+          useEffect(() => {
+            if (!sessionActive || showFeedback) return;
+            if (timerRef.current) clearInterval(timerRef.current);
+            
+            timerRef.current = setInterval(() => {
+              setTimeLeft(prev => {
+                if (prev <= 1) {
+                  setSessionActive(false);
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+            
+            return () => {
+              if (timerRef.current) clearInterval(timerRef.current);
+            };
+          }, [sessionActive, showFeedback]);
+
+          useEffect(() => {
+            if (!sessionActive && timeLeft === 0) {
+              const t = setTimeout(() => {
+                onDone(score, results, totalAttempts);
+              }, 2500);
+              return () => clearTimeout(t);
+            }
+          }, [sessionActive, timeLeft, score, results, totalAttempts, onDone]);
+
+          useEffect(() => {
+            return () => {
+              if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+            };
+          }, []);
+
+          function nextTask(){
+            if (!sessionActive) return;
+            
+            const nextIdx = (blockIdx + 1) % blocks.length;
+            setBlockIdx(nextIdx);
+            setTask(makeTask(blocks[nextIdx]));
+            setShowFeedback(false);
+          }
+          
+          function check(ans, timeSpent){
+            if (ans === "__next__") {
+              nextTask();
+              return;
+            }
+            
+            if (ans === "__skip__") {
+              setTotalAttempts(t => t + 1);
+              setResults(r => [...r, {
+                type: task.type,
+                correct: false,
+                skipped: true,
+                time: timeSpent
+              }]);
+              setLastCorrect(false);
+              setShowFeedback(true);
+              return;
+            }
+            
+            const isRight = equalAns(ans, task.a);
+            const userNum = normalizeNumber(String(ans));
+            const correctNum = normalizeNumber(task.a);
+            
+            let isClose = false;
+            let feedbackType = isRight ? 'correct' : 'wrong';
+            
+            if (!isRight && userNum !== null && correctNum !== null) {
+              const diff = Math.abs(userNum - correctNum);
+              const threshold = Math.max(0.1, Math.abs(correctNum) * 0.1);
+              if (diff <= threshold) {
+                isClose = true;
+                feedbackType = 'close';
+              }
+            }
+            
+            const pointsEarned = isRight ? 1 : isClose ? 0.5 : 0;
+            setScore(s => s + pointsEarned);
+            setTotalAttempts(t => t + 1);
+            setResults(r => [...r, {
+              type: task.type,
+              correct: isRight,
+              close: isClose,
+              time: timeSpent
+            }]);
+            
+            setLastCorrect(isRight);
+            setLastFeedbackType(feedbackType);
+            setShowFeedback(true);
+            
+            if (autoAdvance && isRight) {
+              if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+              feedbackTimerRef.current = setTimeout(() => {
+                if (sessionActive) {
+                  nextTask();
+                }
+              }, 3000);
+            }
+          }
+
+          const formatTime = (seconds) => {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+          };
+
+          const progress = ((SESSION_DURATION - timeLeft) / SESSION_DURATION) * 100;
+          const timeColor = timeLeft < 60 ? 'text-red-500' : timeLeft < 180 ? 'text-orange-500' : 'text-gray-700';
+
+          return (
+            <div className="space-y-3">
+              {isWarmup && blockIdx < 4 && (
+                <div className="bg-amber-100 rounded-xl p-4 border-2 border-amber-400">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🔥</span>
+                    <div>
+                      <div className="font-bold text-amber-800">Warm-up: 2 Extra-Übungen</div>
+                      <div className="text-sm text-amber-700">Hier nochmal üben bevor's weitergeht!</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <div className="text-sm text-gray-500">
+                  Aufgabe #{totalAttempts + 1} – {label}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="text-xs flex items-center gap-1 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={autoAdvance} 
+                      onChange={e=>setAutoAdvance(e.target.checked)}
+                      className="cursor-pointer"
+                    />
+                    Auto-Weiter
+                  </label>
+                  <button
+                    onClick={() => setTimerVisible(!timerVisible)}
+                    className="text-xs text-gray-500 hover:text-gray-700 underline"
+                  >
+                    {timerVisible ? '⏱️ Timer ausblenden' : '⏱️ Timer zeigen'}
+                  </button>
+                  <div className="text-sm font-semibold">✅ {score.toFixed(1)}/{totalAttempts}</div>
+                  {(timerVisible || timeLeft < 180) && (
+                    <div className={`text-lg font-bold ${timeColor}`}>
+                      ⏱️ {formatTime(timeLeft)}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all ${isWarmup && blockIdx < 4 ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-gradient-to-r from-blue-500 to-purple-500'}`}
+                  style={{width: `${progress}%`}}
+                ></div>
+              </div>
+              
+              {sessionActive ? (
+                <TaskCard 
+                  task={task} 
+                  onAnswer={check} 
+                  showFeedback={showFeedback} 
+                  isCorrect={lastCorrect}
+                  autoAdvance={autoAdvance}
+                  feedbackType={lastFeedbackType}
+                />
+              ) : (
+                <div className="rounded-2xl bg-gradient-to-r from-green-400 to-blue-500 p-8 text-white text-center shadow-lg">
+                  <div className="text-6xl mb-4">🎉</div>
+                  <div className="text-3xl font-bold mb-2">Zeit ist um!</div>
+                  <div className="text-xl mb-4">Super gemacht, Leo!</div>
+                  <div className="bg-white/20 rounded-xl p-4 inline-block">
+                    <div className="text-4xl font-bold">{score}/{totalAttempts}</div>
+                    <div className="text-sm">Aufgaben richtig gelöst</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        function SkillCard({skillKey, stats}){
+          const info = SKILL_INFO[skillKey];
+          if(!info) return null;
+          
+          const total = stats?.attempts || 0;
+          const correct = stats?.correct || 0;
+          const accuracy = total > 0 ? Math.round((correct/total)*100) : 0;
+          const avgTime = stats?.totalTime && total > 0 ? (stats.totalTime/total).toFixed(1) : 0;
+          
+          const level = Math.min(
+            Math.floor(correct / 8) + 1,
+            info.maxLevel
+          );
+          
+          return (
+            <div className="rounded-2xl bg-white p-4 shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{info.icon}</span>
+                  <div>
+                    <div className="font-semibold">{info.name}</div>
+                    <div className="text-xs text-gray-500">Level {level} / {info.maxLevel}</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold">{accuracy}%</div>
+                  <div className="text-xs text-gray-500">Genauigkeit</div>
+                </div>
+              </div>
+              
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all" 
+                  style={{width: `${(level/info.maxLevel)*100}%`}}
+                ></div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div>
+                  <div className="font-semibold">{total}</div>
+                  <div className="text-gray-500">Versuche</div>
+                </div>
+                <div>
+                  <div className="font-semibold">{correct}</div>
+                  <div className="text-gray-500">Richtig</div>
+                </div>
+                <div>
+                  <div className="font-semibold">{avgTime}s</div>
+                  <div className="text-gray-500">Ø Zeit</div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        function ProgressChart({skillStats}){
+          const recentSessions = skillStats?.sessions?.slice(-7) || [];
+          const maxScore = Math.max(...recentSessions.map(s => s?.score || 0), 10);
+          
+          return (
+            <div className="rounded-2xl bg-white p-4 shadow">
+              <div className="font-semibold mb-3">📈 Deine letzten 7 Sessions</div>
+              <div className="flex items-end justify-between h-32 gap-1">
+                {recentSessions.length === 0 ? (
+                  <div className="text-gray-400 text-sm m-auto">Noch keine Daten – starte deine erste Session!</div>
+                ) : (
+                  recentSessions.map((session, i) => {
+                    const score = session?.score || 0;
+                    const total = session?.total || score;
+                    const accuracy = total > 0 ? Math.round((score/total)*100) : 0;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center group relative">
+                        <div 
+                          className="w-full bg-gradient-to-t from-green-500 to-green-300 rounded-t transition-all hover:opacity-80"
+                          style={{height: `${(score/maxScore)*100}%`, minHeight: '8px'}}
+                        ></div>
+                        <div className="text-xs text-gray-500 mt-1">{score}</div>
+                        <div className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                          {score}/{total} ({accuracy}%)
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="text-xs text-gray-400 text-center mt-2">
+                {recentSessions.length > 0 && `Durchschnitt: ${(recentSessions.reduce((a,b)=>a+(b?.score||0),0)/recentSessions.length).toFixed(1)} Punkte`}
+              </div>
+            </div>
+          );
+        }
+
+        function Toast({message, onClose}){
+          useEffect(() => {
+            const timer = setTimeout(onClose, 10000);
+            return () => clearTimeout(timer);
+          }, [onClose]);
+          
+          const parts = message.split('\n\n😄 ');
+          const mainMessage = parts[0];
+          const joke = parts[1] || null;
+          
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 animate-fade-in">
+              <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-8 max-w-lg w-full border-4 border-green-400 animate-scale-in max-h-[90vh] overflow-y-auto">
+                <div className="text-center">
+                  <div className="text-5xl sm:text-7xl mb-3 sm:mb-4">🎉</div>
+                  <div className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 text-gray-800">Super gemacht, Leo!</div>
+                  <div className="text-sm sm:text-base text-gray-700 mb-4 sm:mb-6 whitespace-pre-line leading-relaxed">
+                    {mainMessage}
+                  </div>
+                  
+                  {joke && (
+                    <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 border-2 border-yellow-300">
+                      <div className="text-lg sm:text-xl font-bold mb-2 sm:mb-3 text-orange-700">😄 Witz zum Schluss:</div>
+                      <div className="text-base sm:text-lg text-gray-800">{joke}</div>
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={onClose}
+                    className="bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl px-6 sm:px-8 py-3 sm:py-4 text-base sm:text-lg font-bold hover:scale-105 transition-transform w-full sm:w-auto"
+                  >
+                    Weiter 🚀
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        function CloudAccessCard({loading, error, onAuth}){
+          const [mode, setMode] = useState("login");
+          const [name, setName] = useState("Leo");
+          const [pin, setPin] = useState("");
+          const canSubmit = name.trim().length >= 2 && pin.trim().length >= 4 && !loading;
+
+          const submit = async (event) => {
+            event.preventDefault();
+            if (!canSubmit) return;
+            await onAuth(mode, name.trim(), pin.trim());
+          };
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4 sm:p-6">
+              <div className="max-w-xl mx-auto">
+                <div className="rounded-3xl bg-white shadow-xl border border-blue-100 p-6 sm:p-8">
+                  <div className="text-center mb-6">
+                    <div className="text-6xl mb-3">🧮</div>
+                    <h1 className="text-3xl sm:text-4xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                      MatheCoach
+                    </h1>
+                    <p className="text-gray-600 mt-3">
+                      Melde Leo an, damit Punkte und Fortschritt auf mehreren Geräten gespeichert werden.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2 mb-5">
+                    <button
+                      type="button"
+                      onClick={() => setMode("login")}
+                      className={`flex-1 rounded-xl px-4 py-3 font-semibold transition ${mode === "login" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                    >
+                      Anmelden
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("create")}
+                      className={`flex-1 rounded-xl px-4 py-3 font-semibold transition ${mode === "create" ? "bg-black text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                    >
+                      Neu starten
+                    </button>
+                  </div>
+
+                  <form onSubmit={submit} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Name</label>
+                      <input
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="z. B. Leo"
+                        autoComplete="username"
+                        className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 focus:border-blue-400 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">PIN</label>
+                      <input
+                        value={pin}
+                        onChange={(event) => setPin(event.target.value)}
+                        placeholder="4-stellige PIN"
+                        type="password"
+                        inputMode="numeric"
+                        autoComplete={mode === "login" ? "current-password" : "new-password"}
+                        className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 focus:border-blue-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {error && (
+                      <div className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {error}
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={!canSubmit}
+                      className="w-full rounded-xl bg-gradient-to-r from-blue-500 to-purple-500 px-4 py-3 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loading ? "Verbinde..." : mode === "login" ? "Mit Cloud anmelden ☁️" : "Profil anlegen 🚀"}
+                    </button>
+                  </form>
+
+                  <div className="mt-5 rounded-2xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-900">
+                    Die PIN wird auf diesem Gerät lokal gespeichert, damit Leo sich nicht jedes Mal neu anmelden muss.
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        function FreeTrainer({kind,label,icon,skillStats,setSkillStats,onCloudResult}){
+          const [task,setTask] = useState(()=> makeTask(kind));
+          const [showFeedback, setShowFeedback] = useState(false);
+          const [lastCorrect, setLastCorrect] = useState(false);
+          const [lastFeedbackType, setLastFeedbackType] = useState('correct');
+          const stats = skillStats?.[kind] || {attempts:0, correct:0, totalTime:0};
+          const timerRef = useRef(null);
+          
+          useEffect(() => {
+            return () => {
+              if (timerRef.current) clearTimeout(timerRef.current);
+            };
+          }, []);
+          
+          function answer(a, timeSpent){
+            if (a === "__next__") {
+              setTask(makeTask(kind));
+              setShowFeedback(false);
+              return;
+            }
+            
+            if (a === "__skip__") {
+              setShowFeedback(true);
+              setLastCorrect(false);
+              setLastFeedbackType('wrong');
+              
+              const newStats = {
+                ...skillStats, 
+                [kind]: {
+                  ...(skillStats[kind] || {attempts:0, correct:0, totalTime:0})
+                }
+              };
+              newStats[kind].attempts += 1;
+              newStats[kind].totalTime = (newStats[kind].totalTime || 0) + (timeSpent || 0);
+              setSkillStats(newStats);
+              if (onCloudResult) {
+                onCloudResult({
+                  kind,
+                  correct: false,
+                  close: false,
+                  timeSpent
+                });
+              }
+              return;
+            }
+            
+            const ok = equalAns(a, task.a);
+            const userNum = normalizeNumber(String(a));
+            const correctNum = normalizeNumber(task.a);
+            
+            let isClose = false;
+            let feedbackType = ok ? 'correct' : 'wrong';
+            
+            if (!ok && userNum !== null && correctNum !== null) {
+              const diff = Math.abs(userNum - correctNum);
+              const threshold = Math.max(0.1, Math.abs(correctNum) * 0.1);
+              if (diff <= threshold) {
+                isClose = true;
+                feedbackType = 'close';
+              }
+            }
+            
+            const newStats = {
+              ...skillStats, 
+              [kind]: {
+                ...(skillStats[kind] || {attempts:0, correct:0, totalTime:0})
+              }
+            };
+            newStats[kind].attempts += 1;
+            if(ok) newStats[kind].correct += 1;
+            if(isClose && !ok) newStats[kind].correct += 0.5;
+            newStats[kind].totalTime = (newStats[kind].totalTime || 0) + (timeSpent || 0);
+            setSkillStats(newStats);
+            if (onCloudResult) {
+              onCloudResult({
+                kind,
+                correct: ok,
+                close: isClose,
+                timeSpent
+              });
+            }
+            
+            setLastCorrect(ok);
+            setLastFeedbackType(feedbackType);
+            setShowFeedback(true);
+            
+            if (ok) {
+              if (timerRef.current) clearTimeout(timerRef.current);
+              timerRef.current = setTimeout(() => {
+                setTask(makeTask(kind));
+                setShowFeedback(false);
+              }, 10000);
+            }
+          }
+          
+          const accuracy = stats.attempts > 0 ? Math.round((stats.correct/stats.attempts)*100) : 0;
+          
+          return (
+            <div className="rounded-2xl shadow p-4 bg-white">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">{icon}</span>
+                  <div className="font-semibold">{label}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-semibold">{accuracy}%</div>
+                  {stats && stats.attempts > 0 && (
+                    <div className="text-xs text-gray-500">
+                      {stats.correct}/{stats.attempts}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <TaskCard 
+                task={task} 
+                onAnswer={answer} 
+                showFeedback={showFeedback} 
+                isCorrect={lastCorrect}
+                autoAdvance={false}
+                feedbackType={lastFeedbackType}
+              />
+            </div>
+          );
+        }
+
+        function App(){
+          const [tab,setTab] = useLocalState("tab","home");
+          const [streak,setStreak] = useLocalState("streak",0);
+          const [xp,setXp] = useLocalState("xp",0);
+          const [week,setWeek] = useLocalState("week",1);
+          const [day,setDay] = useLocalState("day",1);
+          const [lastSession, setLastSession] = useLocalState("lastSession", null);
+          const [skillStats, setSkillStats] = useLocalState("skillStats", createEmptySkillStats());
+          const [cloudProfile, setCloudProfile] = useLocalState(CLOUD_PROFILE_STORAGE_KEY, null);
+          
+          const todayPlan = useMemo(()=> PLAN[`week${week}`]?.[day-1] || PLAN.week1[0], [week,day]);
+          const [inSession,setInSession] = useState(false);
+          const [showSettings, setShowSettings] = useState(false);
+          const [toastMessage, setToastMessage] = useState(null);
+          const [cloudError, setCloudError] = useState(null);
+          const [cloudLoading, setCloudLoading] = useState(!!cloudProfile?.playerId);
+          const [cloudSyncing, setCloudSyncing] = useState(false);
+
+          const weakModules = useMemo(()=> {
+            return Object.keys(SKILL_INFO)
+              .filter(m => needsExtraTraining(skillStats, m))
+              .map(m => {
+                const s = skillStats[m];
+                const rate = s && s.attempts > 0 ? (s.correct / s.attempts) * 100 : 0;
+                return {module: m, rate};
+              });
+          }, [skillStats]);
+
+          const resetLocalProgress = () => {
+            setTab("home");
+            setStreak(0);
+            setXp(0);
+            setWeek(1);
+            setDay(1);
+            setLastSession(null);
+            setSkillStats(createEmptySkillStats());
+            setInSession(false);
+            setShowSettings(false);
+          };
+
+          const syncFromCloud = async (profile = cloudProfile, {initial = false} = {}) => {
+            if (!profile?.playerId || !profile?.pin) return null;
+            if (initial) {
+              setCloudLoading(true);
+            } else {
+              setCloudSyncing(true);
+            }
+            setCloudError(null);
+            try {
+              const payload = await supabaseRpc("get_player_state", {
+                p_player_id: profile.playerId,
+                p_pin: profile.pin
+              });
+              applyCloudPayloadToState(payload, {
+                setStreak,
+                setXp,
+                setWeek,
+                setDay,
+                setLastSession,
+                setSkillStats
+              });
+              if (payload?.player?.name && payload.player.name !== profile.name) {
+                setCloudProfile(prev => prev ? {...prev, name: payload.player.name} : prev);
+              }
+              return payload;
+            } catch (error) {
+              setCloudError(formatCloudError(error));
+              return null;
+            } finally {
+              if (initial) {
+                setCloudLoading(false);
+              } else {
+                setCloudSyncing(false);
+              }
+            }
+          };
+
+          useEffect(() => {
+            if (!cloudProfile?.playerId || !cloudProfile?.pin) {
+              setCloudLoading(false);
+              return;
+            }
+            syncFromCloud(cloudProfile, {initial: true});
+          }, [cloudProfile?.playerId, cloudProfile?.pin]);
+
+          const checkStreak = () => {
+            const today = new Date();
+            const todayStr = today.toDateString();
+            
+            if (!lastSession) {
+              setLastSession(todayStr);
+              setStreak(1);
+              return true;
+            }
+            
+            const last = new Date(lastSession);
+            const diffDays = Math.floor((today - last) / 86400000);
+            
+            if (diffDays === 0) {
+              return false;
+            } else if (diffDays === 1) {
+              setStreak(s => s + 1);
+              setLastSession(todayStr);
+              return true;
+            } else {
+              setStreak(1);
+              setLastSession(todayStr);
+              return false;
+            }
+          };
+
+          const exportProgress = () => {
+            const data = {
+              version: "2.0",
+              exportDate: new Date().toISOString(),
+              player: cloudProfile?.name || null,
+              streak,
+              xp,
+              week,
+              day,
+              lastSession,
+              skillStats
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `leo-mathecoach-backup-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            alert('✅ Fortschritt gespeichert!\n\nDie Datei wurde heruntergeladen. Bewahre sie gut auf! 📁');
+          };
+
+          const importProgress = (event) => {
+            if (cloudProfile?.playerId) {
+              alert('☁️ Import ist im Cloud-Modus deaktiviert.\n\nMelde dich erst ab, wenn du ein lokales Backup importieren willst.');
+              event.target.value = '';
+              return;
+            }
+
+            const file = event.target.files?.[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const data = JSON.parse(e.target?.result);
+                
+                if (!data || typeof data !== 'object' || !('version' in data) || !('xp' in data)) {
+                  throw new Error('Ungültige Backup-Datei');
+                }
+                
+                setStreak(data.streak || 0);
+                setXp(data.xp || 0);
+                setWeek(data.week || 1);
+                setDay(data.day || 1);
+                setLastSession(data.lastSession || null);
+                
+                const restoredStats = data.skillStats || {};
+                if (restoredStats.sessions && Array.isArray(restoredStats.sessions)) {
+                  restoredStats.sessions = restoredStats.sessions.slice(-30);
+                }
+                
+                setSkillStats({
+                  ...createEmptySkillStats(),
+                  ...restoredStats
+                });
+                
+                alert('🎉 Fortschritt wiederhergestellt!\n\nAlle deine Daten sind wieder da! 💪');
+                
+              } catch (error) {
+                alert('❌ Fehler beim Laden!\n\nDie Datei konnte nicht gelesen werden. Bitte prüfe, ob es eine gültige MatheCoach-Backup-Datei ist.');
+                console.error('Import error:', error);
+              }
+            };
+            reader.readAsText(file);
+            
+            event.target.value = '';
+          };
+
+          const handleCloudAuth = async (mode, name, pin) => {
+            setCloudError(null);
+            setCloudLoading(true);
+            resetLocalProgress();
+            try {
+              const fnName = mode === "create" ? "create_player" : "login_player";
+              const response = await supabaseRpc(fnName, {
+                p_name: name,
+                p_pin: pin
+              });
+              const row = Array.isArray(response) ? response[0] : response;
+              if (!row?.player_id) {
+                throw new Error("invalid_login");
+              }
+              setCloudProfile({
+                playerId: row.player_id,
+                name: row.player_name || name,
+                pin
+              });
+            } catch (error) {
+              setCloudLoading(false);
+              setCloudError(formatCloudError(error));
+            }
+          };
+
+          const handleLogout = () => {
+            setCloudProfile(null);
+            setCloudError(null);
+            setCloudLoading(false);
+            setCloudSyncing(false);
+            resetLocalProgress();
+          };
+
+          const saveFreeTrainingToCloud = async ({kind, correct, close, timeSpent}) => {
+            if (!cloudProfile?.playerId || !cloudProfile?.pin) return;
+            setCloudSyncing(true);
+            setCloudError(null);
+            try {
+              const payload = await supabaseRpc("save_free_training_result", {
+                p_player_id: cloudProfile.playerId,
+                p_pin: cloudProfile.pin,
+                p_skill_key: kind,
+                p_correct: !!correct,
+                p_close: !!close,
+                p_response_time_ms: Math.max(0, Math.round(Number(timeSpent || 0) * 1000))
+              });
+              if (payload?.skill_key) {
+                setSkillStats(prev => ({
+                  ...prev,
+                  [payload.skill_key]: {
+                    attempts: Number(payload?.attempts || 0),
+                    correct: Number(payload?.correct || 0),
+                    totalTime: Number(payload?.totalTime || 0) / 1000
+                  }
+                }));
+              }
+            } catch (error) {
+              setCloudError(formatCloudError(error));
+            } finally {
+              setCloudSyncing(false);
+            }
+          };
+
+          async function finishSession(score, results, totalAttempts){
+            setInSession(false);
+            let earnedXP = score * 10;
+            
+            let nextXpSnapshot;
+            setXp(prev => {
+              nextXpSnapshot = prev + earnedXP;
+              return nextXpSnapshot;
+            });
+            
+            const isNewDay = checkStreak();
+            
+            const newStats = {
+              ...skillStats,
+              sessions: [...(skillStats.sessions || [])]
+            };
+            results.forEach(result => {
+              if(result?.type && newStats[result.type]) {
+                newStats[result.type] = {...newStats[result.type]};
+                newStats[result.type].attempts += 1;
+                if(result.correct) {
+                  newStats[result.type].correct += 1;
+                } else if (result.close) {
+                  newStats[result.type].correct += 0.5;
+                }
+                newStats[result.type].totalTime = (newStats[result.type].totalTime || 0) + (result.time || 0);
+              }
+            });
+            
+            newStats.sessions = [...(newStats.sessions || []), {
+              date: new Date().toISOString(),
+              score: score,
+              total: totalAttempts,
+              week: week,
+              day: day
+            }].slice(-30);
+            
+            setSkillStats(newStats);
+            
+            setDay(prevDay => {
+              const nextDay = prevDay < 5 ? prevDay + 1 : 1;
+              setWeek(prevWeek => (prevDay < 5 ? prevWeek : Math.min(3, prevWeek + 1)));
+              return nextDay;
+            });
+            
+            if (cloudProfile?.playerId && cloudProfile?.pin) {
+              setCloudSyncing(true);
+              setCloudError(null);
+              try {
+                const response = await supabaseRpc("save_session_results", {
+                  p_player_id: cloudProfile.playerId,
+                  p_pin: cloudProfile.pin,
+                  p_week: week,
+                  p_day: day,
+                  p_results: serializeResultsForCloud(results)
+                });
+                if (typeof response?.earned_xp === "number") {
+                  earnedXP = response.earned_xp;
+                }
+                if (typeof response?.score === "number") {
+                  score = response.score;
+                }
+                await syncFromCloud(cloudProfile);
+              } catch (error) {
+                setCloudError(formatCloudError(error));
+              } finally {
+                setCloudSyncing(false);
+              }
+            }
+            
+            const newWeakModules = Object.keys(newStats).filter(m => 
+              m !== 'sessions' && needsExtraTraining(newStats, m)
+            );
+            
+            const accuracy = totalAttempts > 0 ? Math.round((score/totalAttempts)*100) : 0;
+            const joke = getRandomJoke();
+            
+            let message = `✅ Richtig: ${score}/${totalAttempts} (${accuracy}%)\n⭐ XP: +${earnedXP} (Gesamt: ${nextXpSnapshot})${isNewDay ? '\n🔥 Streak verlängert!' : ''}`;
+            
+            if (newWeakModules.length > 0) {
+              const weakName = SKILL_INFO[newWeakModules[0]]?.name || newWeakModules[0];
+              message += `\n\n💡 Tipp: Bei ${weakName} kannst du noch üben!`;
+            }
+
+            if (cloudProfile?.playerId) {
+              message += `\n\n☁️ Cloud-Speicherung aktiv`;
+            }
+            
+            message += `\n\n😄 ${joke}`;
+            
+            setToastMessage(message);
+          }
+
+          if (!cloudProfile?.playerId) {
+            return (
+              <CloudAccessCard
+                loading={cloudLoading}
+                error={cloudError}
+                onAuth={handleCloudAuth}
+              />
+            );
+          }
+
+          if (cloudLoading) {
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4 sm:p-6">
+                <div className="max-w-xl mx-auto rounded-3xl bg-white shadow-xl border border-blue-100 p-8 text-center">
+                  <div className="text-6xl mb-4">☁️</div>
+                  <div className="text-2xl font-bold mb-2">Fortschritt wird geladen</div>
+                  <div className="text-gray-600">Einen Moment, die Daten von {cloudProfile?.name || "Leo"} kommen aus Supabase.</div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 p-3 sm:p-5">
+              <div className="max-w-4xl mx-auto">
+                <header className="mb-4 sm:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                      MatheCoach
+                    </h1>
+                    <div className="text-sm text-gray-500 mt-1">
+                      Spieler: <strong>{cloudProfile?.name || "Leo"}</strong> {cloudSyncing ? "· ☁️ synchronisiert..." : "· ☁️ Cloud aktiv"}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 sm:gap-3 items-center w-full sm:w-auto justify-between sm:justify-end">
+                    <div className="flex gap-2 text-sm">
+                      <div className="rounded-xl bg-white px-3 sm:px-4 py-2 shadow-sm border border-orange-200">
+                        <span className="text-lg sm:text-xl mr-1">🔥</span>
+                        <span className="font-semibold">{streak}</span>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 sm:px-4 py-2 shadow-sm border border-yellow-200">
+                        <span className="text-lg sm:text-xl mr-1">⭐</span>
+                        <span className="font-semibold">{xp}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <button 
+                        onClick={() => setShowSettings(!showSettings)}
+                        className="rounded-xl bg-white px-3 py-2 shadow-sm border border-gray-200 hover:bg-gray-50 transition"
+                      >
+                        ⚙️
+                      </button>
+                      {showSettings && (
+                        <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 z-10 overflow-hidden">
+                          <button 
+                            onClick={() => { syncFromCloud(cloudProfile); setShowSettings(false); }}
+                            className="w-full px-4 py-3 text-left hover:bg-gray-50 text-sm border-b"
+                          >
+                            ☁️ Cloud neu laden
+                          </button>
+                          <button 
+                            onClick={() => { exportProgress(); setShowSettings(false); }}
+                            className="w-full px-4 py-3 text-left hover:bg-gray-50 text-sm border-b"
+                          >
+                            📥 Fortschritt exportieren
+                          </button>
+                          <label className="block w-full px-4 py-3 text-left hover:bg-gray-50 text-sm cursor-pointer border-b">
+                            📤 Lokalen Import laden
+                            <input 
+                              type="file" 
+                              accept=".json"
+                              onChange={(e) => { importProgress(e); setShowSettings(false); }}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            onClick={() => { handleLogout(); setShowSettings(false); }}
+                            className="w-full px-4 py-3 text-left hover:bg-red-50 text-sm text-red-600"
+                          >
+                            🔒 Abmelden
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </header>
+
+                {cloudError && (
+                  <div className="mb-4 rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    ☁️ {cloudError}
+                  </div>
+                )}
+
+                <nav className="flex gap-2 mb-4 sm:mb-5 overflow-x-auto pb-2 -mx-3 px-3 sm:mx-0 sm:px-0">
+                  {[
+                    ["home","🏠 Übersicht"],
+                    ["progress","📊 Fortschritt"],
+                    ["session","🎯 Heute"],
+                    ["free","🎮 Training"],
+                    ["plan","📅 Plan"],
+                  ].map(([k,label])=> (
+                    <button 
+                      key={k} 
+                      onClick={()=>setTab(k)} 
+                      className={`px-3 sm:px-4 py-2 rounded-xl shadow-sm whitespace-nowrap transition text-sm sm:text-base ${tab===k?"bg-black text-white":"bg-white hover:bg-gray-50"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </nav>
+
+                {tab==="home" && (
+                  <div className="grid gap-3 sm:gap-4">
+                    <div className="rounded-2xl bg-gradient-to-r from-blue-500 to-purple-500 p-5 sm:p-6 shadow-lg text-white">
+                      <div className="text-xl sm:text-2xl font-bold mb-2">Hey {cloudProfile?.name || "Leo"}! 👋</div>
+                      <p className="text-sm sm:text-base text-blue-50">Trainiere jeden Tag 15 Minuten und du wirst sehen: Du wirst besser! Die Zahlen beweisen es.</p>
+                    </div>
+                    
+                    {weakModules.length > 0 && (
+                      <div className="rounded-2xl bg-amber-50 p-5 shadow-lg border-2 border-amber-400">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="text-3xl">💪</span>
+                          <div className="font-bold text-lg text-amber-800">Hier kannst du noch üben!</div>
+                        </div>
+                        <div className="space-y-2">
+                          {weakModules.map(({module, rate}) => (
+                            <div key={module} className="flex items-center justify-between bg-white rounded-lg p-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xl">{SKILL_INFO[module]?.icon}</span>
+                                <span className="font-semibold text-gray-800">{SKILL_INFO[module]?.name}</span>
+                              </div>
+                              <div className="text-sm">
+                                <span className="text-amber-600 font-bold">{Math.round(rate)}%</span>
+                                <span className="text-gray-500 ml-1">richtig</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button 
+                          onClick={()=>setTab("free")}
+                          className="mt-3 w-full bg-amber-500 text-white rounded-xl px-4 py-2 font-bold hover:bg-amber-600"
+                        >
+                          Jetzt extra üben 🎯
+                        </button>
+                      </div>
+                    )}
+                    
+                    <div className="rounded-2xl bg-white p-4 sm:p-5 shadow">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+                        <div>
+                          <div className="font-semibold text-base sm:text-lg">Heutige Session</div>
+                          <div className="text-sm sm:text-base text-gray-600">Woche {week}, Tag {day}</div>
+                        </div>
+                        <div className="text-3xl sm:text-4xl">
+                          {day===1 ? "🌟" : day===2 ? "🚀" : day===3 ? "💪" : day===4 ? "🎯" : "🏆"}
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 rounded-xl p-3 mb-3">
+                        <div className="font-medium mb-2 text-sm sm:text-base">{todayPlan.title}</div>
+                        <div className="flex gap-2 flex-wrap">
+                          {todayPlan.blocks.map((b,i)=> (
+                            <span key={i} className="px-2 sm:px-3 py-1 rounded-full bg-white border text-xs sm:text-sm">
+                              {BLOCK_LABEL[b] || b}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <button 
+                        onClick={()=>{setInSession(true); setTab("session");}} 
+                        className="w-full bg-black text-white rounded-xl px-4 py-3 font-semibold hover:bg-gray-800 transition text-sm sm:text-base"
+                      >
+                        🎮 Los geht's!
+                      </button>
+                    </div>
+
+                    <ProgressChart skillStats={skillStats} />
+                  </div>
+                )}
+
+                {tab==="progress" && (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl bg-white p-5 shadow">
+                      <div className="text-xl font-bold mb-1">🎯 Deine Fähigkeiten</div>
+                      <p className="text-gray-600 text-sm mb-4">So entwickelst du dich in jedem Bereich</p>
+                      <div className="grid gap-3">
+                        {Object.keys(SKILL_INFO).map(key => (
+                          <SkillCard key={key} skillKey={key} stats={skillStats[key]} />
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <ProgressChart skillStats={skillStats} />
+                    
+                    <div className="rounded-2xl bg-gradient-to-r from-green-400 to-blue-500 p-5 shadow text-white">
+                      <div className="text-lg font-bold mb-2">💡 {cloudProfile?.name || "Leo"}, schau mal:</div>
+                      <p className="text-sm text-green-50 mb-3">
+                        Jede Aufgabe, die du löst, bringt dich weiter. Die Balken zeigen es schwarz auf weiß: 
+                        Du wirst besser! Auch wenn die Note noch nicht da ist - deine Fähigkeiten wachsen.
+                      </p>
+                      <div className="bg-white/20 rounded-lg p-3 text-sm">
+                        <strong>Dein nächstes Ziel:</strong> Erreiche Level 3 in deinem schwächsten Bereich!
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {tab==="session" && (
+                  <div className="rounded-2xl bg-white p-5 shadow">
+                    {!inSession ? (
+                      <div>
+                        <div className="text-2xl font-bold mb-2">Heutige Session</div>
+                        <div className="text-gray-600 mb-4">{todayPlan.title}</div>
+                        
+                        {weakModules.length > 0 && (
+                          <div className="bg-amber-50 rounded-lg p-4 border-2 border-amber-300 mb-4">
+                            <div className="text-sm font-bold text-amber-800 mb-2">
+                              🔥 Warm-up geplant!
+                            </div>
+                            <div className="text-sm text-amber-700">
+                              Wir starten mit <strong>2 Extra-Übungen</strong> für: <strong>{weakModules.slice(0,2).map(w => SKILL_INFO[w.module]?.name).join(" & ")}</strong>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                          <div className="font-semibold mb-2">📋 Was dich erwartet:</div>
+                          <ul className="space-y-1 text-sm">
+                            {todayPlan.blocks.map((b,i)=> (
+                              <li key={i} className="flex items-center gap-2">
+                                <span className="text-blue-500">▸</span>
+                                {BLOCK_LABEL[b] || b}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <button 
+                          onClick={()=>setInSession(true)} 
+                          className="w-full bg-black text-white rounded-xl px-4 py-3 font-semibold hover:bg-gray-800 transition"
+                        >
+                          🚀 Starten
+                        </button>
+                      </div>
+                    ) : (
+                      (() => {
+                        const warmupModules = weakModules
+                          .map(w => w.module)
+                          .filter(m => !hasMastery(skillStats, m))
+                          .slice(0, 2);
+                        
+                        const warmupBlocks = warmupModules.flatMap(m => [m, m]);
+                        const effectiveBlocks = [...warmupBlocks, ...todayPlan.blocks];
+                        const hasWarmup = warmupBlocks.length > 0;
+                        
+                        return (
+                          <Session 
+                            key={effectiveBlocks.join('|')}
+                            blocks={effectiveBlocks} 
+                            onDone={finishSession} 
+                            isWarmup={hasWarmup} 
+                          />
+                        );
+                      })()
+                    )}
+                  </div>
+                )}
+
+                {tab==="free" && (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl bg-white p-5 shadow">
+                      <div className="text-xl font-bold mb-1">🎮 Freies Training</div>
+                      <p className="text-gray-600 text-sm">Übe gezielt, was du verbessern willst</p>
+                    </div>
+                    <div className="grid gap-4">
+                      {Object.entries(SKILL_INFO).map(([k,info])=> (
+                        <FreeTrainer
+                          key={k}
+                          kind={k}
+                          label={info.name}
+                          icon={info.icon}
+                          skillStats={skillStats}
+                          setSkillStats={setSkillStats}
+                          onCloudResult={saveFreeTrainingToCloud}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {tab==="plan" && (
+                  <div className="rounded-2xl bg-white p-5 shadow">
+                    <div className="text-xl font-bold mb-4">📅 3-Wochen-Plan</div>
+                    {["week1","week2","week3"].map((w,wi)=> (
+                      <div key={w} className="mb-6">
+                        <div className="font-bold text-lg mb-2 flex items-center gap-2">
+                          <span className="text-2xl">{wi===0 ? "🌱" : wi===1 ? "🌿" : "🌳"}</span>
+                          Woche {wi+1}
+                        </div>
+                        <div className="space-y-2">
+                          {PLAN[w].map((d,di)=> (
+                            <div 
+                              key={di} 
+                              className={`p-3 rounded-xl border-2 ${week===wi+1 && day===di+1 ? 'border-black bg-gray-50' : 'border-gray-200'}`}
+                            >
+                              <div className="font-semibold">Tag {di+1}: {d.title}</div>
+                              <div className="text-sm text-gray-600 flex gap-1 flex-wrap mt-1">
+                                {d.blocks.map((b,bi)=> (
+                                  <span key={bi} className="px-2 py-0.5 bg-gray-100 rounded">
+                                    {BLOCK_LABEL[b] || b}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <footer className="text-xs text-gray-400 mt-10 text-center">
+                  MatheCoach · Fortschritt wird lokal zwischengespeichert und ueber Supabase synchronisiert
+                </footer>
+              </div>
+              
+              {toastMessage && (
+                <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+              )}
+              
+              <style>{`
+                @keyframes fade-in {
+                  from { opacity: 0; }
+                  to { opacity: 1; }
+                }
+                @keyframes scale-in {
+                  from {
+                    transform: scale(0.8);
+                    opacity: 0;
+                  }
+                  to {
+                    transform: scale(1);
+                    opacity: 1;
+                  }
+                }
+                .animate-fade-in {
+                  animation: fade-in 0.3s ease-out;
+                }
+                .animate-scale-in {
+                  animation: scale-in 0.4s ease-out;
+                }
+              `}</style>
+            </div>
+          );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
