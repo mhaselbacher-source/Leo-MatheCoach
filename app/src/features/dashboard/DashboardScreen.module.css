@@ -1,0 +1,154 @@
+.layout {
+  display: grid;
+  gap: 18px;
+}
+
+.hero,
+.footer {
+  padding: clamp(20px, 4vw, 34px);
+}
+
+.eyebrow,
+.label {
+  margin: 0;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+}
+
+.title,
+.moduleTitle {
+  margin: 0;
+}
+
+.text,
+.moduleText {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.55;
+}
+
+.metrics,
+.moduleGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric,
+.moduleCard {
+  padding: 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.focusCard {
+  padding: 22px;
+  display: grid;
+  gap: 12px;
+}
+
+.factList {
+  display: grid;
+  gap: 10px;
+}
+
+.factItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.moduleGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.moduleMeta {
+  display: grid;
+  gap: 6px;
+  color: var(--color-muted);
+  margin-bottom: 4px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.resetPrompt {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-strong);
+  min-width: min(100%, 340px);
+}
+
+.resetTitle {
+  margin: 0;
+  font-weight: 700;
+}
+
+.resetInput {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+  color: var(--color-ink);
+}
+
+.resetError {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.resetActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .metrics,
+  .moduleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .footerActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .resetActions {
+    flex-direction: column;
+  }
+
+  .factItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

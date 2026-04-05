@@ -1,0 +1,24 @@
+:root {
+  color-scheme: light;
+  --color-canvas: #fdf6ed;
+  --color-surface: #fff9f2;
+  --color-surface-strong: #fffdf8;
+  --color-sand: #f8d8b0;
+  --color-highlight: #f0b060;
+  --color-caramel: #d89858;
+  --color-accent: #486898;
+  --color-accent-soft: #dce6f2;
+  --color-ink: #5a3e2b;
+  --color-muted: #856b57;
+  --color-border: rgba(90, 62, 43, 0.12);
+  --color-success: #f4c95d;
+  --color-danger: #cb7b68;
+  --shadow-soft: 0 18px 40px rgba(125, 91, 61, 0.12);
+  --shadow-card: 0 10px 24px rgba(88, 64, 44, 0.08);
+  --radius-xl: 32px;
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --radius-sm: 14px;
+  --font-body: "Avenir Next", "Trebuchet MS", "Gill Sans", sans-serif;
+  --font-display: "Avenir Next Condensed", "Trebuchet MS", "Gill Sans", sans-serif;
+}

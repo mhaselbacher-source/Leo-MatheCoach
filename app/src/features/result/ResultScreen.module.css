@@ -1,0 +1,68 @@
+.card {
+  padding: clamp(20px, 4vw, 36px);
+  display: grid;
+  gap: 18px;
+}
+
+.eyebrow,
+.label {
+  margin: 0;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(1.8rem, 2vw + 1rem, 2.7rem);
+}
+
+.text {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.syncInfo,
+.syncWarning {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  line-height: 1.5;
+}
+
+.syncInfo {
+  background: rgba(220, 230, 242, 0.55);
+  color: var(--color-ink);
+}
+
+.syncWarning {
+  background: rgba(201, 92, 81, 0.12);
+  color: var(--color-danger);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.stats > div {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 253, 248, 0.8);
+  display: grid;
+  gap: 8px;
+}
+
+.actions {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+}
