@@ -10,7 +10,7 @@ import {
 export const LOGIN_DEFAULT_NAME =
   (import.meta.env.VITE_DEFAULT_PLAYER_NAME ?? "Leo").trim() || "Leo";
 export const LOGIN_DEFAULT_PIN =
-  (import.meta.env.VITE_DEFAULT_PLAYER_PIN ?? "1234").trim() || "1234";
+  (import.meta.env.VITE_DEFAULT_PLAYER_PIN ?? "6280").trim() || "6280";
 
 export const defaultModuleProgress = (): Record<ModuleId, ModuleProgress> => ({
   times: {

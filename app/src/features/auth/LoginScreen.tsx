@@ -109,7 +109,7 @@ export function LoginScreen() {
               type="password"
               value={pin}
               onChange={(event) => setPin(event.target.value)}
-              placeholder="1234"
+              placeholder="6280"
             />
           </label>
 

@@ -168,7 +168,7 @@ export function DashboardScreen() {
               </span>
             </div>
 
-            {moduleId === "times-advanced" && isLocked(moduleId) ? (
+            {(moduleId === "times-advanced" || moduleId === "frac-advanced") && isLocked(moduleId) ? (
               <Button variant="secondary" onClick={handleUnlockRequest}>
                 Grosses 1x1 und Brüche freischalten
               </Button>
