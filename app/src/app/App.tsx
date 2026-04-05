@@ -40,6 +40,7 @@ function PersistedAppShell() {
       knownDevice: state.knownDevice,
       player: state.player,
       moduleProgress: state.moduleProgress,
+      unlockedModules: state.unlockedModules,
       timesFactStats: state.timesFactStats,
       lastResult: state.lastResult,
     })

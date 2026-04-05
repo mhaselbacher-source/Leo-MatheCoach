@@ -46,6 +46,7 @@ export function LoginScreen() {
             pin: pin.trim(),
           },
           moduleProgress: state.moduleProgress,
+          unlockedModules: state.unlockedModules,
           timesFactStats: state.timesFactStats,
           lastResult: state.lastResult,
         });
