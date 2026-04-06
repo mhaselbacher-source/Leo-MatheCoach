@@ -4,14 +4,15 @@ import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { useAppDispatch, useAppState } from "../../state/app-context";
 import { loadRemotePlayerSnapshot } from "../../lib/supabase/player-api";
-import { LOGIN_DEFAULT_NAME, LOGIN_DEFAULT_PIN } from "../../app/bootstrap";
 import styles from "./LoginScreen.module.css";
 
 export function LoginScreen() {
   const state = useAppState();
   const dispatch = useAppDispatch();
-  const [name, setName] = useState(state.player.name || LOGIN_DEFAULT_NAME);
-  const [pin, setPin] = useState(state.player.pin || LOGIN_DEFAULT_PIN);
+  const initialName = state.knownDevice ? state.player.name : "";
+  const initialPin = state.knownDevice ? state.player.pin : "";
+  const [name, setName] = useState(initialName);
+  const [pin, setPin] = useState(initialPin);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -97,7 +98,7 @@ export function LoginScreen() {
               autoComplete="username"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="Leo"
+              placeholder="Dein Name"
             />
           </label>
 
@@ -110,7 +111,7 @@ export function LoginScreen() {
               type="password"
               value={pin}
               onChange={(event) => setPin(event.target.value)}
-              placeholder="6280"
+              placeholder="Deine PIN"
             />
           </label>
 
